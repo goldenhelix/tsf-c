@@ -1,5 +1,8 @@
 # Copyright 2015 Golden Helix, Inc.
 
+#TIP: To build with -O3, run:
+#> OPTIMIZATION='' make
+
 TSF_SRCS = src
 
 JANSSON_PATH = src/jansson
