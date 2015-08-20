@@ -32,10 +32,13 @@ static char* str_dup(const char* str)
 static char* str_join(const char* left, const char* right, char joiner)
 {
   bool use_joiner = joiner != '\0';
-  int left_size = strlen(left);
+  int left_size = left ? strlen(left) : 0;
   int size = left_size + (use_joiner ? 1 : 0) + strlen(right) + 1;
   char* joined = malloc(size);
-  memcpy(joined, left, left_size);
+  if (left) {
+    memcpy(joined, left, left_size);
+    free((char*)left);
+  }
   int offset = left_size;
   if (use_joiner)
     joined[offset++] = joiner;
