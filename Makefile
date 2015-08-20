@@ -32,7 +32,7 @@ DYN_TSF_OBJECTS=$(foreach i,$(TSF_OBJS),$(patsubst %.o,%.os,$(i)))
 OPTIMIZATION?=-O3
 WARNINGS?=-Wall
 DEBUG?=-ggdb
-STD?=c99
+STD?=gnu99
 PEDANTIC?=-pedantic
 ALL_CFLAGS=-std=$(STD) $(PEDANTIC) $(CFLAGS) $(OPTIMIZATION) $(WARNINGS) $(DEBUG) $(ALL_DEFINES)
 ALL_LDFLAGS=$(LDFLAGS) -lz
