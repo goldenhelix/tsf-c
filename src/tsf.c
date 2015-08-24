@@ -340,6 +340,9 @@ tsf_file* tsf_open_file(const char* fileName)
       else
         f->field_type = FieldEntityAttribute;
 
+      if (strlen(f->locus_idx_map) > 0 && strcmp(f->locus_idx_map, "SPARSE_ARRAY") == 0)
+        f->field_type = FieldSparseArray;
+
       f->locus_idx_map_table = -1;
       f->locus_idx_map_field = -1;
       if (strlen(f->locus_idx_map) > 0 && strcmp(f->locus_idx_map, "IDX_IS_ID") != 0) {

@@ -114,7 +114,8 @@ const char* va_str(tsf_v va, int i);
 typedef enum {
   FieldLocusAttribute,
   FieldEntityAttribute,
-  FieldMatrix
+  FieldMatrix,
+  FieldSparseArray
 } tsf_field_type;
 
 typedef struct tsf_field {
