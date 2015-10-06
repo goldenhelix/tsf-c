@@ -567,7 +567,7 @@ void* error(const char* msg)
 }
 
 tsf_iter* tsf_query_table(tsf_file* tsf, int source_id, int field_count, int* field_idxs,
-                          int entity_count, int* entity_idxs)
+                          int entity_count, int* entity_ids)
 {
   if (!tsf)
     return NULL;
@@ -578,7 +578,7 @@ tsf_iter* tsf_query_table(tsf_file* tsf, int source_id, int field_count, int* fi
   iter->source_id = source_id;
   iter->cur_record_id = -1;
   iter->entity_count = -1;
-  iter->cur_entity_id = -1;
+  iter->cur_entity_idx = -1;
   iter->is_matrix_iter = false;
   iter->field_type = FieldLocusAttribute;
 
@@ -615,13 +615,13 @@ tsf_iter* tsf_query_table(tsf_file* tsf, int source_id, int field_count, int* fi
     if (entity_count <= 0) {
       // Default to all entities
       iter->entity_count = s->entity_count;
-      iter->entity_idxs = malloc(sizeof(int) * s->entity_count);
+      iter->entity_ids = malloc(sizeof(int) * s->entity_count);
       for (int i = 0; i < iter->entity_count; i++)
-        iter->entity_idxs[i] = i;
+        iter->entity_ids[i] = i;
     } else {
       iter->entity_count = entity_count;
-      iter->entity_idxs = malloc(sizeof(int) * entity_count);
-      memcpy(iter->entity_idxs, entity_idxs, sizeof(int) * entity_count);
+      iter->entity_ids = malloc(sizeof(int) * entity_count);
+      memcpy(iter->entity_ids, entity_ids, sizeof(int) * entity_count);
     }
   }
 
@@ -872,11 +872,11 @@ void chunk_value(tsf_chunk* c, int offset, tsf_v* value, bool* is_null)
   }
 }
 
-bool read_chunk_with_idxmap(tsf_file* tsf, tsf_chunk* c, tsf_field* f, int record_id)
+bool read_chunk_with_idxmap(tsf_file* tsf, tsf_chunk* c, tsf_field* f, int record_id, int field_idx)
 {
   // If we have no idx_map for locus dimention, do a strait read_chunk
   tsf_chunk_table* t = &tsf->chunk_tables[f->table_idx];
-  int64_t chunk_id = ((int64_t)(record_id >> t->chunk_bits) << 32) | f->table_field_idx;
+  int64_t chunk_id = ((int64_t)(record_id >> t->chunk_bits) << 32) | field_idx;
   if (f->locus_idx_map_table < 0) {
     return read_chunk(t, c, chunk_id);
   }
@@ -916,7 +916,7 @@ bool read_chunk_with_idxmap(tsf_file* tsf, tsf_chunk* c, tsf_field* f, int recor
   for (int i = 0; i < idx_chunk.record_count; i++) {
     chunk_value(&idx_chunk, i, &value, &is_null);
     int idx = v_int32(value);
-    int64_t chunk_id = ((int64_t)(idx >> t->chunk_bits) << 32) | f->table_field_idx;
+    int64_t chunk_id = ((int64_t)(idx >> t->chunk_bits) << 32) | field_idx;
     int offset = idx % t->chunk_size;
 
     // Linearly scan for this chunk_id in our existing backend_chunks
@@ -951,14 +951,14 @@ bool tsf_iter_next(tsf_iter* iter)
     // No entity dimention. Each iter_next increements cur_record_id
     iter->cur_record_id++;
   } else {
-    iter->cur_entity_id++;
+    iter->cur_entity_idx++;
 
     // Loop around
-    if (iter->cur_entity_id >= iter->entity_count)
-      iter->cur_entity_id = 0;
+    if (iter->cur_entity_idx >= iter->entity_count)
+      iter->cur_entity_idx = 0;
 
     // Otherwise, only when we loop around to cur_entity_id == 0 do we increment record
-    if (iter->cur_entity_id == 0)
+    if (iter->cur_entity_idx == 0)
       iter->cur_record_id++;
   }
 
@@ -972,15 +972,18 @@ bool tsf_iter_next(tsf_iter* iter)
     tsf_chunk_table* t = &iter->tsf->chunk_tables[f->table_idx];
     tsf_chunk* c;
     if (iter->is_matrix_iter)
-      c = &iter->chunks[(i * iter->entity_count) + iter->cur_entity_id];
+      c = &iter->chunks[(i * iter->entity_count) + iter->cur_entity_idx];
     else
       c = &iter->chunks[i];
 
-    int64_t chunk_id = ((int64_t)(iter->cur_record_id >> t->chunk_bits) << 32) | f->table_field_idx;
+    // For matrix fields, the chunk ID field_idx is the entity offset
+    int field_idx = iter->is_matrix_iter ? iter->entity_ids[iter->cur_entity_idx] : f->table_field_idx;
+
+    int64_t chunk_id = ((int64_t)(iter->cur_record_id >> t->chunk_bits) << 32) | field_idx;
     int offset = iter->cur_record_id % t->chunk_size;
 
     if (c->chunk_id != chunk_id)
-      if (!read_chunk_with_idxmap(iter->tsf, c, f, iter->cur_record_id))
+      if (!read_chunk_with_idxmap(iter->tsf, c, f, iter->cur_record_id, field_idx))
         return false;
 
     // Need to set cur_values and cur_nulls to appropriate values
@@ -998,7 +1001,7 @@ bool tsf_iter_id(tsf_iter* iter, int id)
 void tsf_iter_close(tsf_iter* iter)
 {
   free(iter->fields);
-  free(iter->entity_idxs);
+  free(iter->entity_ids);
   free(iter->cur_values);
   free(iter->cur_nulls);
   int chunk_count =

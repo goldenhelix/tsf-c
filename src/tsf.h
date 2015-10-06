@@ -270,7 +270,7 @@ typedef struct tsf_iter {
 
   tsf_field_type field_type; // All fields in query must be same type
   bool is_matrix_iter;  // iter_field_type == FieldTypeMatrix
-  int cur_entity_id;    // Only used if is_matrix_iter, else -1
+  int cur_entity_idx;   // Index into entity_ids, used if is_matrix_iter
 
   int field_count;
   tsf_field** fields; //pointers to borrowed fields
@@ -280,7 +280,7 @@ typedef struct tsf_iter {
   bool* cur_nulls;
 
   int entity_count;
-  int* entity_idxs;
+  int* entity_ids;
 
   tsf_chunk* chunks;  // len <- is_matrix_iter ? field_count * entity_count :
                       // field_count
@@ -314,10 +314,10 @@ void tsf_close_file(tsf_file* tsf);
 //
 // Note fields should be *ALL* the same field_type.
 //
-// For Matrix fields iteration, entity_count and entity_idxs must be
+// For Matrix fields iteration, entity_count and entity_ids must be
 // provided (otherwise set as -1, NULL). tsf_itr->is_matrix_iter will be
 // 'true', and each record will have 'entity_count' results, with
-// 'cur_entity_id' set to each of entity_idxs iteratively.
+// 'cur_entity_idx' looping from [0, entity_count].
 //
 // tsf_iter_next will read records into the iter until it reaches the end
 // of the table.
@@ -325,7 +325,7 @@ void tsf_close_file(tsf_file* tsf);
 // tsf_iter_close destroys the allocated iter.
 tsf_iter* tsf_query_table(tsf_file* tsf, int source_id,
                           int field_count, int* field_idxs,
-                          int entity_count, int* entity_idxs);
+                          int entity_count, int* entity_ids);
 
 // Reads cur_record_id if less than max_record_id and increment it.
 // cur_values and cur_nulls are filled with the values for the record.
@@ -342,7 +342,7 @@ void tsf_iter_close(tsf_iter* iter);
 tsf_gidx_iter* tsf_query_genomic_index(tsf_file* tsf, int source_id,
                                        char* chr, int start, int stop,
                                        int field_count, int* field_idxs,
-                                       int entity_count, int* entity_idxs);
+                                       int entity_count, int* entity_ids);
 
 
 // Read the next record that overlaps the gidx query into gidx_iter->iter
