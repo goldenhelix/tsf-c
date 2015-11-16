@@ -252,7 +252,7 @@ typedef struct tsf_chunk {
   tsf_chunk_header header;
 
   int record_count;
-  int chunk_id;
+  int64_t chunk_id;
   tsf_value_type value_type;
   char* chunk_data; // Just a bunch of bytes
   int chunk_bytes; //length of chunk_data
