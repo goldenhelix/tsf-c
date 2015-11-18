@@ -112,6 +112,7 @@ const char* va_str(tsf_v va, int i);
  * Type of records the field encodes
  */
 typedef enum {
+  FieldTypeInvalid,
   FieldLocusAttribute,
   FieldEntityAttribute,
   FieldMatrix,
@@ -312,7 +313,10 @@ void tsf_close_file(tsf_file* tsf);
 // field_idxs, otherwise field_idxs is a field_count length array of
 // field.idx values of the fields to be read.
 //
-// Note fields should be *ALL* the same field_type.
+// Note fields should be *ALL* the same field_type, specified by
+// field_type. If field_type is set as FieldTypeInvalid it will be
+// detected by the types in field_idxs, but if field_count is 0 (no
+// field_idxs), then field_type must be set.
 //
 // For Matrix fields iteration, entity_count and entity_ids must be
 // provided (otherwise set as -1, NULL). tsf_itr->is_matrix_iter will be
@@ -325,7 +329,8 @@ void tsf_close_file(tsf_file* tsf);
 // tsf_iter_close destroys the allocated iter.
 tsf_iter* tsf_query_table(tsf_file* tsf, int source_id,
                           int field_count, int* field_idxs,
-                          int entity_count, int* entity_ids);
+                          int entity_count, int* entity_ids,
+                          tsf_field_type field_type);
 
 // Reads cur_record_id if less than max_record_id and increment it.
 // cur_values and cur_nulls are filled with the values for the record.

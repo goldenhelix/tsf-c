@@ -567,7 +567,7 @@ void* error(const char* msg)
 }
 
 tsf_iter* tsf_query_table(tsf_file* tsf, int source_id, int field_count, int* field_idxs,
-                          int entity_count, int* entity_ids)
+                          int entity_count, int* entity_ids, tsf_field_type field_type)
 {
   if (!tsf)
     return NULL;
@@ -580,7 +580,7 @@ tsf_iter* tsf_query_table(tsf_file* tsf, int source_id, int field_count, int* fi
   iter->entity_count = -1;
   iter->cur_entity_idx = -1;
   iter->is_matrix_iter = false;
-  iter->field_type = FieldLocusAttribute;
+  iter->field_type = field_type;
 
   tsf_source* s = &tsf->sources[source_id - 1];
 
@@ -596,12 +596,12 @@ tsf_iter* tsf_query_table(tsf_file* tsf, int source_id, int field_count, int* fi
   } else {
     iter->field_count = field_count;
     iter->fields = calloc(sizeof(tsf_file*), iter->field_count);
-    if(field_count > 0)
+    if(field_count > 0 && iter->field_type == FieldTypeInvalid)
       iter->field_type = s->fields[field_idxs[0]].field_type;
     for (int i = 0; i < iter->field_count; i++) {
       iter->fields[i] = &s->fields[field_idxs[i]];
       if (iter->field_type != s->fields[field_idxs[0]].field_type)
-        return error("All fields passed into tsf_query_table must have the same field_type");
+        return error("All fields passed into tsf_query_table must have a consistent field_type");
     }
   }
 
