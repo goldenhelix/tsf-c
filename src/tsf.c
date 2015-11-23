@@ -1000,6 +1000,8 @@ bool tsf_iter_id(tsf_iter* iter, int id)
 
 void tsf_iter_close(tsf_iter* iter)
 {
+  if(!iter)
+    return;
   free(iter->fields);
   free(iter->entity_ids);
   free(iter->cur_values);
