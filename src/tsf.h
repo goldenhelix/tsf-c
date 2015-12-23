@@ -339,6 +339,8 @@ bool tsf_iter_next(tsf_iter* iter);
 // Reads id if available, resulting it being set to iter->cur_record_id
 bool tsf_iter_id(tsf_iter* iter, int id);
 
+bool tsf_iter_id_matrix(tsf_iter* iter, int id, int entity_idx);
+
 void tsf_iter_close(tsf_iter* iter);
 
 // Query the genomic index (gidx) of a source.

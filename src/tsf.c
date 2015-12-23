@@ -945,27 +945,8 @@ bool read_chunk_with_idxmap(tsf_file* tsf, tsf_chunk* c, tsf_field* f, int recor
   return true;
 }
 
-bool tsf_iter_next(tsf_iter* iter)
+static bool tsf_iter_read_current(tsf_iter* iter)
 {
-  if (!iter->is_matrix_iter) {
-    // No entity dimention. Each iter_next increements cur_record_id
-    iter->cur_record_id++;
-  } else {
-    iter->cur_entity_idx++;
-
-    // Loop around
-    if (iter->cur_entity_idx >= iter->entity_count)
-      iter->cur_entity_idx = 0;
-
-    // Otherwise, only when we loop around to cur_entity_id == 0 do we increment record
-    if (iter->cur_entity_idx == 0)
-      iter->cur_record_id++;
-  }
-
-  // Finished iteration
-  if (iter->cur_record_id >= iter->max_record_id)
-    return false;
-
   // Copy appropriate values into cur_values
   for (int i = 0; i < iter->field_count; i++) {
     tsf_field* f = iter->fields[i];
@@ -992,10 +973,62 @@ bool tsf_iter_next(tsf_iter* iter)
   return true;
 }
 
+bool tsf_iter_next(tsf_iter* iter)
+{
+  if (!iter->is_matrix_iter) {
+    // No entity dimention. Each iter_next increements cur_record_id
+    iter->cur_record_id++;
+  } else {
+    iter->cur_entity_idx++;
+
+    // Loop around
+    if (iter->cur_entity_idx >= iter->entity_count)
+      iter->cur_entity_idx = 0;
+
+    // Otherwise, only when we loop around to cur_entity_id == 0 do we increment record
+    if (iter->cur_entity_idx == 0)
+      iter->cur_record_id++;
+  }
+
+  // Finished iteration
+  if (iter->cur_record_id >= iter->max_record_id)
+    return false;
+
+  return tsf_iter_read_current(iter);
+}
+
 bool tsf_iter_id(tsf_iter* iter, int id)
 {
-  iter->cur_record_id = id - 1;  // since we iter_next will advance to id
-  return tsf_iter_next(iter);
+  if(iter->cur_record_id == id)
+    return true; // Don't do work
+  if(id < 0)
+    return false; // Invalid
+
+  if(iter->is_matrix_iter)
+    iter->cur_entity_idx = 0; //Reset cur_entity_idx, otherwise call tsf_iter_id_matrix
+
+  iter->cur_record_id = id;
+  if(iter->cur_record_id >= iter->max_record_id)
+    return false; //end of table
+
+  return tsf_iter_read_current(iter);
+}
+
+bool tsf_iter_id_matrix(tsf_iter* iter, int id, int entity_idx)
+{
+  if(iter->cur_record_id == id && iter->cur_entity_idx == entity_idx)
+    return true; // Don't do work
+  if(id < 0 || entity_idx < 0)
+    return false; // Invalid
+  assert(iter->is_matrix_iter);
+  assert(entity_idx >= 0 && entity_idx < iter->entity_count);
+
+  iter->cur_record_id = id;
+  iter->cur_entity_idx = entity_idx;
+  if(iter->cur_record_id >= iter->max_record_id)
+    return false; //end of table
+
+  return tsf_iter_read_current(iter);
 }
 
 void tsf_iter_close(tsf_iter* iter)
