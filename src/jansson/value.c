@@ -36,7 +36,7 @@ static JSON_INLINE void json_init(json_t *json, json_type type)
 
 /*** object ***/
 
-json_t *json_object(void)
+json_t *new_json_object(void)
 {
     json_object_t *object = jsonp_malloc(sizeof(json_object_t));
     if(!object)

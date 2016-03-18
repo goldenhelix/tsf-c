@@ -80,7 +80,10 @@ typedef long json_int_t;
 
 /* construction, destruction, reference counting */
 
-json_t *json_object(void);
+// GH: json_object is defined in postgres, this is required to remove symbol collision
+json_t *new_json_object(void);
+#define json_object new_json_object
+
 json_t *json_array(void);
 json_t *json_string(const char *value);
 json_t *json_string_nocheck(const char *value);
