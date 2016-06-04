@@ -13,12 +13,13 @@
 #define TSF_H
 
 // C99 expected
-#include <stdint.h>
+#include <float.h>
+#include <limits.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <limits.h>
-#include <float.h>
-#include <math.h>
+#include <stdint.h>
+#include <time.h>
 
 // NOTE: The Postgres coding style is nominally followed for
 // type/function/variable naming and capitalization.
@@ -262,6 +263,17 @@ typedef struct tsf_chunk {
   tsf_v cur_value;
 } tsf_chunk;
 
+typedef struct tsf_stats {
+  int read_chunks;
+  int64_t read_chunk_bytes;
+  int64_t decompressed_bytes;
+  clock_t read_time;
+  clock_t decompress_time;
+  int records_in_mem;
+  int records_total;
+} tsf_stats;
+
+
 /**
  * An iterator may only grab fields of a uniform FIELD_TYPE
  */
@@ -287,6 +299,8 @@ typedef struct tsf_iter {
                       // field_count
   int source_id;
   tsf_file* tsf;
+
+  tsf_stats stats; //Iterator stats
 } tsf_iter;
 
 typedef struct tsf_gidx_iter {

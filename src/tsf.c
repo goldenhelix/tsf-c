@@ -91,7 +91,7 @@ static tsf_value_type str_to_value_type(const char* type)
 #define IS_LETTER(charval) \
   ((charval >= 65 && charval <= 90) || (charval >= 97 && charval <= 122) || charval == '_')
 
-bool is_code_identifier(const char* str)
+static bool is_code_identifier(const char* str)
 {
   for (int i = 0; i < strlen(str); i++) {
     if (i == 0) {
@@ -105,7 +105,7 @@ bool is_code_identifier(const char* str)
   return strlen(str) > 0;
 }
 
-bool field_list_contains_symbol(tsf_field* fields, int size, const char* symbol)
+static bool field_list_contains_symbol(tsf_field* fields, int size, const char* symbol)
 {
   for (int i = 0; i < size; i++)
     if (strcmp(fields[i].symbol, symbol) == 0)
@@ -114,7 +114,7 @@ bool field_list_contains_symbol(tsf_field* fields, int size, const char* symbol)
 }
 
 // Always clone the string
-const char* str_to_code_identifier(const char* str)
+static const char* str_to_code_identifier(const char* str)
 {
   if (is_code_identifier(str))
     return str_dup(str);
@@ -560,7 +560,7 @@ void tsf_close_file(tsf_file* tsf)
   free(tsf);
 }
 
-void* error(const char* msg)
+static void* error(const char* msg)
 {
   fprintf(stderr, "%s\n", msg);
   return NULL;
@@ -669,14 +669,22 @@ static bool zlib_uncompress(unsigned char* dest, unsigned long expectedSize,
   return true;
 }
 
-static bool read_chunk(tsf_chunk_table* t, tsf_chunk* c, int64_t chunk_id)
+static bool read_chunk(tsf_chunk_table* t, tsf_chunk* c, int64_t chunk_id, tsf_stats* stats)
 {
+  clock_t cstart = clock();
+  clock_t cend = 0;
+
   sqlite3_reset(t->q);
   sqlite3_bind_int64(t->q, 1, chunk_id);
   if (sqlite3_step(t->q) != SQLITE_ROW)
     return false;
   const char* raw_data = (const char*)sqlite3_column_blob(t->q, 0);
   int size = sqlite3_column_bytes(t->q, 0);
+
+  cend = clock();
+  stats->read_time += (int)(cend-cstart);
+  stats->read_chunk_bytes += size;
+  cstart = cend;
 
   if (size < HEADER_SIZE) {
     return (bool)error("Less than 16 bytes expected for header of chunk");
@@ -732,6 +740,10 @@ static bool read_chunk(tsf_chunk_table* t, tsf_chunk* c, int64_t chunk_id)
   } else {
     return error("Unkown compression method of chunk");
   }
+  cend = clock();
+  stats->decompress_time += (cend-cstart);
+  stats->decompressed_bytes += c->chunk_bytes;
+  stats->read_chunks++;
 
   // set up pointer at beginning of chunk
   c->cur_value = (tsf_v)c->chunk_data;
@@ -744,7 +756,7 @@ static bool read_chunk(tsf_chunk_table* t, tsf_chunk* c, int64_t chunk_id)
   *value = c->cur_value;                            \
   *is_null = (v_read(c->cur_value) == v_missing);
 
-void chunk_value(tsf_chunk* c, int offset, tsf_v* value, bool* is_null)
+static void chunk_value(tsf_chunk* c, int offset, tsf_v* value, bool* is_null)
 {
   // Read the typed value of chunk at offset, setting value to
   // appropriate place in chunk->chunk_data and is_null appropriately.
@@ -872,13 +884,13 @@ void chunk_value(tsf_chunk* c, int offset, tsf_v* value, bool* is_null)
   }
 }
 
-bool read_chunk_with_idxmap(tsf_file* tsf, tsf_chunk* c, tsf_field* f, int record_id, int field_idx)
+static bool read_chunk_with_idxmap(tsf_file* tsf, tsf_chunk* c, tsf_field* f, int record_id, int field_idx, tsf_stats* stats)
 {
   // If we have no idx_map for locus dimention, do a strait read_chunk
   tsf_chunk_table* t = &tsf->chunk_tables[f->table_idx];
   int64_t chunk_id = ((int64_t)(record_id >> t->chunk_bits) << 32) | field_idx;
   if (f->locus_idx_map_table < 0) {
-    return read_chunk(t, c, chunk_id);
+    return read_chunk(t, c, chunk_id, stats);
   }
 
   // Only Chr, Start, Stop genomic fields uses the field_idx_map in TSF1
@@ -893,7 +905,7 @@ bool read_chunk_with_idxmap(tsf_file* tsf, tsf_chunk* c, tsf_field* f, int recor
   tsf_chunk_table* idx_chunk_table = &tsf->chunk_tables[f->locus_idx_map_table];
   int64_t idx_chunk_id =
       ((int64_t)(record_id >> idx_chunk_table->chunk_bits) << 32) | f->locus_idx_map_field;
-  if (!read_chunk(idx_chunk_table, &idx_chunk, idx_chunk_id))
+  if (!read_chunk(idx_chunk_table, &idx_chunk, idx_chunk_id, stats))
     return false;
 
   // Set up our passed in chunk with values filled in from the indexed
@@ -931,7 +943,7 @@ bool read_chunk_with_idxmap(tsf_file* tsf, tsf_chunk* c, tsf_field* f, int recor
     // Not found, fetch this chunk
     if (chunk_idx >= backend_chunks_count) {
       backend_chunks_count++;
-      read_chunk(t, &backend_chunks[chunk_idx], chunk_id);
+      read_chunk(t, &backend_chunks[chunk_idx], chunk_id, stats);
     }
 
     // Read backend chunk value into our collated chunk data
@@ -963,9 +975,13 @@ static bool tsf_iter_read_current(tsf_iter* iter)
     int64_t chunk_id = ((int64_t)(iter->cur_record_id >> t->chunk_bits) << 32) | field_idx;
     int offset = iter->cur_record_id % t->chunk_size;
 
-    if (c->chunk_id != chunk_id)
-      if (!read_chunk_with_idxmap(iter->tsf, c, f, iter->cur_record_id, field_idx))
+    if (c->chunk_id != chunk_id) {
+      if (!read_chunk_with_idxmap(iter->tsf, c, f, iter->cur_record_id, field_idx, &iter->stats))
         return false;
+    } else {
+      iter->stats.records_in_mem++;
+    }
+    iter->stats.records_total++;
 
     // Need to set cur_values and cur_nulls to appropriate values
     chunk_value(c, offset, &iter->cur_values[i], &iter->cur_nulls[i]);
