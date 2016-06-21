@@ -677,7 +677,7 @@ static bool read_chunk(tsf_chunk_table* t, tsf_chunk* c, int64_t chunk_id, tsf_s
   sqlite3_reset(t->q);
   sqlite3_bind_int64(t->q, 1, chunk_id);
   if (sqlite3_step(t->q) != SQLITE_ROW)
-    return false;
+    return (bool)error("Expected chunk was not found in DB");
   const char* raw_data = (const char*)sqlite3_column_blob(t->q, 0);
   int size = sqlite3_column_bytes(t->q, 0);
 
@@ -721,7 +721,7 @@ static bool read_chunk(tsf_chunk_table* t, tsf_chunk* c, int64_t chunk_id, tsf_s
     c->chunk_data = malloc(c->chunk_bytes);
     if (!zlib_uncompress((unsigned char*)c->chunk_data, c->chunk_bytes, (const unsigned char*)data,
                          size - HEADER_SIZE))
-      return false;
+    return (bool)error("zlib decompression of chunk failed");
   } else if (c->header.compression_method == CompressionBlosc) {
     if (size < (HEADER_SIZE + BLOSC_MIN_HEADER_LENGTH))
       return true;  // empty chunk
@@ -730,15 +730,15 @@ static bool read_chunk(tsf_chunk_table* t, tsf_chunk* c, int64_t chunk_id, tsf_s
     size_t nbytes, cbytes, blocksize;
     blosc_cbuffer_sizes(data, &nbytes, &cbytes, &blocksize);
     if (cbytes != size - HEADER_SIZE)
-      return error("BLOSC buffer or header corrupt");
+      return (bool)error("BLOSC buffer or header corrupt");
 
     c->chunk_bytes = nbytes;
     c->chunk_data = malloc(c->chunk_bytes);
     int err = blosc_decompress(data, c->chunk_data, c->chunk_bytes);
     if (err < 0 || err != (int)nbytes)
-      return error("Chunk had BLOSC error while decompressing");
+      return (bool)error("Chunk had BLOSC error while decompressing");
   } else {
-    return error("Unkown compression method of chunk");
+    return (bool)error("Unkown compression method of chunk");
   }
   cend = clock();
   stats->decompress_time += (cend-cstart);
@@ -943,7 +943,8 @@ static bool read_chunk_with_idxmap(tsf_file* tsf, tsf_chunk* c, tsf_field* f, in
     // Not found, fetch this chunk
     if (chunk_idx >= backend_chunks_count) {
       backend_chunks_count++;
-      read_chunk(t, &backend_chunks[chunk_idx], chunk_id, stats);
+      if(!read_chunk(t, &backend_chunks[chunk_idx], chunk_id, stats))
+	return false;
     }
 
     // Read backend chunk value into our collated chunk data
@@ -1015,13 +1016,14 @@ bool tsf_iter_next(tsf_iter* iter)
 
 bool tsf_iter_id(tsf_iter* iter, int id)
 {
-  if(iter->cur_record_id == id)
-    return true; // Don't do work
   if(id < 0)
     return false; // Invalid
 
   if(iter->is_matrix_iter)
     iter->cur_entity_idx = 0; //Reset cur_entity_idx, otherwise call tsf_iter_id_matrix
+
+  if(iter->cur_record_id == id)
+    return true; // Don't do work
 
   iter->cur_record_id = id;
   if(iter->cur_record_id >= iter->max_record_id)
