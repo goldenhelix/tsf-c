@@ -55,6 +55,11 @@ typedef enum {
   TypeEnumArray
 } tsf_value_type;
 
+#define tsf_value_type_is_array(value_type)                                    \
+  (value_type == TypeInt32Array || value_type == TypeFloat32Array ||           \
+   value_type == TypeFloat64Array || value_type == TypeBoolArray ||            \
+   value_type == TypeStringArray || value_type == TypeEnumArray)
+
 // Missing value sentinals
 #ifndef INT64_MAX
 #define INT64_MAX (9223372036854775807LL)
