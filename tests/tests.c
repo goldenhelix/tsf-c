@@ -94,7 +94,7 @@ int main(int argc, char** argv)
   assert_string_equal(s->fields[14].enum_names[2], "E3");
 
   // Read some records
-  tsf_iter* iter = tsf_query_table(tsf, 1, -1, NULL, -1, NULL);
+  tsf_iter* iter = tsf_query_table(tsf, 1, -1, NULL, -1, NULL, FieldLocusAttribute);
   assert_non_null(iter);
   assert_int_equal(iter->field_count, 15);
   assert_int_equal(iter->source_id, 1);
@@ -102,7 +102,7 @@ int main(int argc, char** argv)
   assert_int_equal(iter->max_record_id, 4098); //Iteration starts "before" first record
   assert_int_equal(iter->is_matrix_iter, false);
   assert_int_equal(iter->entity_count, -1);
-  assert_int_equal(iter->cur_entity_id, -1);
+  assert_int_equal(iter->cur_entity_idx, -1);
 
   assert_true( tsf_iter_next(iter) );
 
@@ -239,7 +239,7 @@ int main(int argc, char** argv)
   fields[1] = 5;
   fields[2] = 6;
   fields[3] = 8;
-  iter = tsf_query_table(tsf, 1, 4, fields, -1, NULL);
+  iter = tsf_query_table(tsf, 1, 4, fields, -1, NULL, FieldLocusAttribute);
   free(fields);
   assert_non_null(iter);
   assert_int_equal(iter->field_count, 4);
@@ -255,6 +255,8 @@ int main(int argc, char** argv)
   tsf_iter_close(iter);
 
   tsf_close_file(tsf);
+
+  printf("ALL TESTS COMPLETE\n");
 
   // TODO: Test matrix fields
 

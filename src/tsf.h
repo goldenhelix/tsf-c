@@ -89,18 +89,17 @@ typedef struct tsf_v_array {
   char array[4];
 } tsf_v_array;
 
-typedef struct tsf_v_array_padded {
-  uint16_t size;
-  uint16_t padding;
+typedef struct tsf_v_array_siz32 {
+  int size;
   char array[4];
-} tsf_v_array_padded;
+} tsf_v_array_size32;
 
 #define va_size(va) ((tsf_v_array*)va)->size
 #define va_array(va) ((tsf_v_array*)va)->array
-#define va_array_padded(va) ((tsf_v_array_padded*)va)->array
+#define va_array_size32(va) ((tsf_v_array_size32*)va)->array
 
-#define va_int32(va, i) ((int*)(((tsf_v_array_padded*)va)->array))[i]
-#define va_float32(va, i) ((float*)(((tsf_v_array_padded*)va)->array))[i]
+#define va_int32(va, i) ((int*)(((tsf_v_array_size32*)va)->array))[i]
+#define va_float32(va, i) ((float*)(((tsf_v_array_size32*)va)->array))[i]
 #define va_float64(va, i) ((double*)(((tsf_v_array*)va)->array))[i]
 #define va_bool(va, i) ((char*)(((tsf_v_array*)va)->array))[i]
 #define va_enum_as_str(va, i, names) (va_int32(va, i) < 0 ? NULL : names[va_int32(va, i)])
@@ -201,6 +200,8 @@ typedef struct tsf_chunk_table {
   int record_count;
 
   struct sqlite3_stmt* q;
+
+  int* scratch_array_sizes; // chunk_size array
 } tsf_chunk_table;
 
 /*
@@ -219,9 +220,10 @@ typedef struct tsf_file {
 } tsf_file;
 
 typedef enum {
-  CompressionInvaid = 0x0,
+  CompressionZstd   = 0x0,
   CompressionZlib   = 0x1,
   CompressionBlosc  = 0x2,
+  CompressionLZ4    = 0x3,
 } compression_mehtod;
 
 typedef struct tsf_chunk_header {

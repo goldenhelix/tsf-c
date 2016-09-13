@@ -11,6 +11,8 @@
 #include "sqlite3/sqlite3.h"
 #include "jansson/jansson.h"
 #include "blosc/blosc.h"
+#include "zstd/lib/zstd.h"
+#include "lz4/lib/lz4.h"
 
 #define RETURN_ERR(return_arg)                                                         \
   {                                                                                    \
@@ -499,6 +501,7 @@ tsf_file* tsf_open_file(const char* fileName)
     }
     json_decref(meta);
     t->chunk_size = 1 << t->chunk_bits;
+    t->scratch_array_sizes = malloc(t->chunk_size * sizeof(int));
   }
 
   sqlite3_finalize(q_src);
@@ -550,6 +553,7 @@ void tsf_close_file(tsf_file* tsf)
 
   for (int i = 0; i < tsf->chunk_table_count; i++) {
     free((char*)tsf->chunk_tables[i].name);
+    free(tsf->chunk_tables[i].scratch_array_sizes);
     sqlite3_finalize(tsf->chunk_tables[i].q);
   }
   free(tsf->chunk_tables);
@@ -638,7 +642,7 @@ tsf_iter* tsf_query_table(tsf_file* tsf, int source_id, int field_count, int* fi
   return iter;
 }
 
-static int zlib_expcted_size(const unsigned char* data)
+static int expcted_size(const unsigned char* data)
 {
   if (!data)
     return -1;
@@ -646,14 +650,15 @@ static int zlib_expcted_size(const unsigned char* data)
   return (int)expectedSize;
 }
 
-static bool zlib_uncompress(unsigned char* dest, unsigned long expectedSize,
-                            const unsigned char* data, unsigned long nbytes)
+static bool zlib_uncompress(char* dest, unsigned long expectedSize,
+                            const char* data, unsigned long nbytes)
 {
   if (!data)
     return false;
 
   // 4 is the size header in the beginning of our compressed buffer
-  int res = uncompress(dest, &expectedSize, data + 4, nbytes - 4);
+  int res =
+      uncompress((unsigned char*)dest, &expectedSize, (const unsigned char*)data + 4, nbytes - 4);
 
   switch (res) {
     case Z_OK:
@@ -666,6 +671,30 @@ static bool zlib_uncompress(unsigned char* dest, unsigned long expectedSize,
     case Z_DATA_ERROR:
       return (bool)error("zlib_uncompress: Z_DATA_ERROR: Input data is corrupted");
   }
+  return true;
+}
+
+static bool zstd_uncompress(char* dest, int expectedSize, const char* data, int nbytes)
+{
+  if (!data)
+    return false;
+
+  // 4 is the size header in the beginning of our compressed buffer
+  size_t size = ZSTD_decompress(dest, expectedSize, data + 4, nbytes - 4);
+  if(size != expectedSize)
+    return false;
+  return true;
+}
+
+static bool lz4_uncompress(char* dest, int expectedSize, const char* data, int nbytes)
+{
+  if (!data)
+    return false;
+
+  // 4 is the size header in the beginning of our compressed buffer
+  int size = LZ4_decompress_safe(data+4, dest, nbytes-4, expectedSize);
+  if(size != expectedSize)
+    return false;
   return true;
 }
 
@@ -710,19 +739,30 @@ static bool read_chunk(tsf_chunk_table* t, tsf_chunk* c, int64_t chunk_id, tsf_s
   c->chunk_id = chunk_id;
   c->record_count = c->header.n;
   c->cur_offset = 0;
+  if (size < (HEADER_SIZE + 4))
+    return true;  // empty chunk
 
   // decompress chunk
   if (c->header.compression_method == CompressionZlib) {
-    if (size < (HEADER_SIZE + 4))
-      return true;  // empty chunk
-
     const char* data = raw_data + HEADER_SIZE;
-    c->chunk_bytes = zlib_expcted_size((const unsigned char*)data);
+    c->chunk_bytes = expcted_size((const unsigned char*)data);
     c->chunk_data = malloc(c->chunk_bytes);
-    if (!zlib_uncompress((unsigned char*)c->chunk_data, c->chunk_bytes, (const unsigned char*)data,
-                         size - HEADER_SIZE))
-    return (bool)error("zlib decompression of chunk failed");
+    if (!zlib_uncompress(c->chunk_data, c->chunk_bytes, data, size - HEADER_SIZE))
+      return (bool)error("zlib decompression of chunk failed");
+  } else if (c->header.compression_method == CompressionZstd) {
+    const char* data = raw_data + HEADER_SIZE;
+    c->chunk_bytes = expcted_size((const unsigned char*)data);
+    c->chunk_data = malloc(c->chunk_bytes);
+    if (!zstd_uncompress(c->chunk_data, c->chunk_bytes, data, size - HEADER_SIZE))
+      return (bool)error("zstd decompression of chunk failed");
+  } else if (c->header.compression_method == CompressionLZ4) {
+    const char* data = raw_data + HEADER_SIZE;
+    c->chunk_bytes = expcted_size((const unsigned char*)data);
+    c->chunk_data = malloc(c->chunk_bytes);
+    if (!lz4_uncompress(c->chunk_data, c->chunk_bytes, data, size - HEADER_SIZE))
+      return (bool)error("zstd decompression of chunk failed");
   } else if (c->header.compression_method == CompressionBlosc) {
+    // BLOSC has slightly larger min size
     if (size < (HEADER_SIZE + BLOSC_MIN_HEADER_LENGTH))
       return true;  // empty chunk
 
@@ -740,6 +780,41 @@ static bool read_chunk(tsf_chunk_table* t, tsf_chunk* c, int64_t chunk_id, tsf_s
   } else {
     return (bool)error("Unkown compression method of chunk");
   }
+  if((c->header.compression_method == CompressionZstd ||
+      c->header.compression_method == CompressionLZ4) &&
+    (c->value_type == TypeInt32Array ||
+     c->value_type == TypeEnumArray ||
+     c->value_type == TypeFloat32Array ||
+     c->value_type == TypeFloat64Array ||
+     c->value_type == TypeBoolArray)) {
+    // Newer compression algorithms place all array sizes up front,
+    // followed by variable length data to improve compression
+    // efficiency.  To make value iteration consistent and simple, we
+    // reconstruct the in-memory construct to match the
+    // [size][values][size][values]... format
+
+    // Will be 4 or 2
+    bool size_t_size = c->header.type_size;
+    if(c->value_type == TypeFloat64Array || c->value_type != TypeBoolArray)
+      size_t_size = sizeof(uint16_t);
+
+    // Copy sizes out as they will go ovewritten
+    memcpy(t->scratch_array_sizes, c->chunk_data, c->header.n * 4);
+
+    // Copy in-place in chunk our values from the latter part of chunk
+    // into the (size,values) pairs.
+    char* s = c->chunk_data;
+    const char* d = c->chunk_data + (c->header.n * 4);
+    for(int i=0; i<c->header.n; i++) {
+      int size = t->scratch_array_sizes[i];
+      memcpy(s, &size, size_t_size);
+      s += size_t_size;
+      memcpy(s, d, size * c->header.type_size);
+      s += size * c->header.type_size;
+      d += size * c->header.type_size;
+    }
+  }
+
   cend = clock();
   stats->decompress_time += (cend-cstart);
   stats->decompressed_bytes += c->chunk_bytes;
