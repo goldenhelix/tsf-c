@@ -794,8 +794,8 @@ static bool read_chunk(tsf_chunk_table* t, tsf_chunk* c, int64_t chunk_id, tsf_s
     // [size][values][size][values]... format
 
     // Will be 4 or 2
-    bool size_t_size = c->header.type_size;
-    if(c->value_type == TypeFloat64Array || c->value_type != TypeBoolArray)
+    int size_t_size = c->header.type_size;
+    if(c->value_type == TypeFloat64Array || c->value_type == TypeBoolArray)
       size_t_size = sizeof(uint16_t);
 
     // Copy sizes out as they will go ovewritten
