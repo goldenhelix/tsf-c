@@ -809,7 +809,7 @@ static bool read_chunk(tsf_chunk_table* t, tsf_chunk* c, int64_t chunk_id, tsf_s
       int size = t->scratch_array_sizes[i];
       memcpy(s, &size, size_t_size);
       s += size_t_size;
-      memcpy(s, d, size * c->header.type_size);
+      memmove(s, d, size * c->header.type_size);
       s += size * c->header.type_size;
       d += size * c->header.type_size;
     }
