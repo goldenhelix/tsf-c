@@ -271,13 +271,13 @@ typedef struct tsf_chunk {
 } tsf_chunk;
 
 typedef struct tsf_stats {
-  int read_chunks;
+  int64_t read_chunks;
   int64_t read_chunk_bytes;
   int64_t decompressed_bytes;
   clock_t read_time;
   clock_t decompress_time;
-  int records_in_mem;
-  int records_total;
+  int64_t records_in_mem;
+  int64_t records_total;
 } tsf_stats;
 
 
